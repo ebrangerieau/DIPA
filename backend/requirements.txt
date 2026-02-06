@@ -21,8 +21,5 @@ passlib[bcrypt]==1.7.4
 msal==1.26.0
 python-dotenv==1.0.0
 
-# CORS
-python-cors==1.0.0
-
 # Utilitaires
 python-dateutil==2.8.2
