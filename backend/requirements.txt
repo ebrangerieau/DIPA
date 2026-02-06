@@ -1,0 +1,28 @@
+# FastAPI et serveur ASGI
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Base de données
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+alembic==1.13.1
+
+# Validation et sérialisation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Client HTTP asynchrone
+httpx==0.26.0
+
+# Authentification et sécurité
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+msal==1.26.0
+python-dotenv==1.0.0
+
+# CORS
+python-cors==1.0.0
+
+# Utilitaires
+python-dateutil==2.8.2

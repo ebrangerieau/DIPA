@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: cockpit_postgres
+    environment:
+      POSTGRES_USER: cockpit
+      POSTGRES_PASSWORD: cockpit_password
+      POSTGRES_DB: cockpit_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - cockpit-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U cockpit" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cockpit_backend
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - cockpit-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend React
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: cockpit_frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - cockpit-network
+    command: npm run dev -- --host
+
+# Volumes persistants
+volumes:
+  postgres_data:
+    driver: local
+
+# Réseau interne
+networks:
+  cockpit-network:
+    driver: bridge

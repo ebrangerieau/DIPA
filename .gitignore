@@ -1,0 +1,17 @@
+# Gitignore principal
+.env
+.env.local
+.DS_Store
+Thumbs.db
+*.log
+
+# Documentation interne
+AGENT.md
+CDC.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
