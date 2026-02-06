@@ -1,11 +1,25 @@
 /**
  * Page principale du Dashboard avec la Smart Timeline.
  */
+import { useNavigate } from 'react-router-dom';
 import SmartTimeline from '../components/SmartTimeline';
 import TicketHistogram from '../components/TicketHistogram';
-import { Calendar, TrendingUp } from 'lucide-react';
+import { Calendar, TrendingUp, LogOut } from 'lucide-react';
+import authService from '../services/authService';
 
 export default function Dashboard() {
+    const navigate = useNavigate();
+
+    const handleLogout = () => {
+        authService.removeToken();
+        navigate('/login');
+    };
+
+    const handleNewContract = () => {
+        // TODO: Ouvrir un modal pour créer un nouveau contrat
+        alert('Fonctionnalité "Nouveau Contrat" à implémenter');
+    };
+
     return (
         <div className="min-h-screen bg-gray-50">
             {/* Header */}
@@ -20,9 +34,20 @@ export default function Dashboard() {
                         </div>
 
                         <div className="flex items-center gap-4">
-                            <button className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
+                            <button
+                                onClick={handleNewContract}
+                                className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
+                            >
                                 <Calendar className="w-4 h-4 mr-2" />
                                 Nouveau Contrat
+                            </button>
+
+                            <button
+                                onClick={handleLogout}
+                                className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+                            >
+                                <LogOut className="w-4 h-4 mr-2" />
+                                Déconnexion
                             </button>
                         </div>
                     </div>
