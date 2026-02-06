@@ -1,23 +1,28 @@
 /**
  * Page principale du Dashboard avec la Smart Timeline.
  */
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SmartTimeline from '../components/SmartTimeline';
 import TicketHistogram from '../components/TicketHistogram';
+import NewContractModal from '../components/NewContractModal';
 import { Calendar, TrendingUp, LogOut } from 'lucide-react';
 import authService from '../services/authService';
 
 export default function Dashboard() {
     const navigate = useNavigate();
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    // State pour forcer le rafraîchissement de la timeline
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     const handleLogout = () => {
         authService.removeToken();
         navigate('/login');
     };
 
-    const handleNewContract = () => {
-        // TODO: Ouvrir un modal pour créer un nouveau contrat
-        alert('Fonctionnalité "Nouveau Contrat" à implémenter');
+    const handleContractCreated = () => {
+        // Incrémenter pour déclencher le refresh des composants enfants
+        setRefreshTrigger(prev => prev + 1);
     };
 
     return (
@@ -35,7 +40,7 @@ export default function Dashboard() {
 
                         <div className="flex items-center gap-4">
                             <button
-                                onClick={handleNewContract}
+                                onClick={() => setIsModalOpen(true)}
                                 className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
                             >
                                 <Calendar className="w-4 h-4 mr-2" />
@@ -65,7 +70,7 @@ export default function Dashboard() {
                                 Timeline - Contrats & Projets
                             </h2>
                         </div>
-                        <SmartTimeline />
+                        <SmartTimeline key={refreshTrigger} />
                     </section>
 
                     {/* Histogram Section */}
@@ -80,6 +85,13 @@ export default function Dashboard() {
                     </section>
                 </div>
             </main>
+
+            {/* Modal de création de contrat */}
+            <NewContractModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                onContractCreated={handleContractCreated}
+            />
         </div>
     );
 }
