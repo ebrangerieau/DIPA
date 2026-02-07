@@ -57,6 +57,7 @@ export default function Login() {
                         </label>
                         <input
                             id="username"
+                            name="username"
                             type="text"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
@@ -73,6 +74,7 @@ export default function Login() {
                         </label>
                         <input
                             id="password"
+                            name="password"
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
@@ -99,7 +101,7 @@ export default function Login() {
                         <br />
                         Username: <code className="bg-blue-100 px-1 rounded">admin</code>
                         <br />
-                        Password: <code className="bg-blue-100 px-1 rounded">admin123</code>
+                        Password: <code className="bg-blue-100 px-1 rounded">Admin1234567</code>
                     </p>
                 </div>
             </div>
