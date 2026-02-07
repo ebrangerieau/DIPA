@@ -1,9 +1,9 @@
 import { useState, useEffect, Fragment } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
-import { X, Calendar, DollarSign, Building, FileText, Upload } from 'lucide-react';
+import { X, Calendar, DollarSign, Building, FileText, Upload, Edit } from 'lucide-react';
 import contractsService from '../services/contractsService';
 
-export default function NewContractModal({ isOpen, onClose, onContractCreated }) {
+export default function EditContractModal({ isOpen, onClose, onContractUpdated, contract }) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -20,6 +20,22 @@ export default function NewContractModal({ isOpen, onClose, onContractCreated })
     };
 
     const [formData, setFormData] = useState(initialFormState);
+
+    // Charger les données du contrat quand le modal s'ouvre
+    useEffect(() => {
+        if (contract && isOpen) {
+            setFormData({
+                name: contract.name || '',
+                supplier: contract.supplier || '',
+                amount: contract.amount || '',
+                duration_months: contract.duration_months || 12,
+                start_date: contract.start_date || '',
+                end_date: contract.end_date || '',
+                notice_period_days: contract.notice_period_days || 90,
+                sharepoint_file_url: contract.sharepoint_file_url || ''
+            });
+        }
+    }, [contract, isOpen]);
 
     // Calcul du coût annuel moyen
     const annualCost = formData.amount && formData.duration_months
@@ -64,20 +80,18 @@ export default function NewContractModal({ isOpen, onClose, onContractCreated })
         }
 
         try {
-            await contractsService.create({
+            await contractsService.update(contract.id, {
                 ...formData,
                 amount: parseFloat(formData.amount),
                 duration_months: parseInt(formData.duration_months),
                 notice_period_days: parseInt(formData.notice_period_days)
             });
 
-            // Reset and close
-            setFormData(initialFormState);
-            onContractCreated();
+            onContractUpdated();
             onClose();
         } catch (err) {
-            console.error('Erreur création contrat:', err);
-            setError(err.response?.data?.detail || "Une erreur est survenue lors de la création du contrat.");
+            console.error('Erreur modification contrat:', err);
+            setError(err.response?.data?.detail || "Une erreur est survenue lors de la modification du contrat.");
         } finally {
             setIsLoading(false);
         }
@@ -112,8 +126,8 @@ export default function NewContractModal({ isOpen, onClose, onContractCreated })
                             <Dialog.Panel className="w-full max-w-2xl transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
                                 <div className="flex justify-between items-center mb-6 border-b pb-4">
                                     <Dialog.Title as="h3" className="text-xl font-semibold leading-6 text-gray-900 flex items-center gap-2">
-                                        <FileText className="w-5 h-5 text-primary-600" />
-                                        Nouveau Contrat
+                                        <Edit className="w-5 h-5 text-primary-600" />
+                                        Modifier le Contrat
                                     </Dialog.Title>
                                     <button
                                         onClick={onClose}
@@ -306,7 +320,7 @@ export default function NewContractModal({ isOpen, onClose, onContractCreated })
                                             className="inline-flex justify-center rounded-md border border-transparent bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                             disabled={isLoading}
                                         >
-                                            {isLoading ? 'Création...' : 'Créer le contrat'}
+                                            {isLoading ? 'Modification...' : 'Enregistrer les modifications'}
                                         </button>
                                     </div>
                                 </form>

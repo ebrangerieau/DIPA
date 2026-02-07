@@ -14,11 +14,12 @@ class Contract(Base):
     Représente un contrat avec ses métadonnées et calculs de préavis.
     """
     __tablename__ = "contracts"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False, index=True)
     supplier = Column(String(255), nullable=False)
-    amount = Column(Numeric(10, 2), nullable=False)
+    amount = Column(Numeric(10, 2), nullable=False, comment="Montant total du contrat")
+    duration_months = Column(Integer, nullable=False, default=12, comment="Durée du contrat en mois")
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False, index=True)
     notice_period_days = Column(Integer, nullable=False)
@@ -91,7 +92,7 @@ class Contract(Base):
     def timeline_color(self) -> str:
         """
         Détermine la couleur pour l'affichage dans la timeline.
-        
+
         Returns:
             str: Code couleur hexadécimal
         """
@@ -105,3 +106,26 @@ class Contract(Base):
                 return "#F59E0B"  # Orange
         else:
             return "#10B981"  # Vert
+
+    @property
+    def annual_cost(self) -> float:
+        """
+        Calcule le coût annuel moyen du contrat.
+
+        Returns:
+            float: Coût annuel moyen (montant total / nombre d'années)
+        """
+        if self.duration_months == 0:
+            return float(self.amount)
+        years = self.duration_months / 12
+        return float(self.amount) / years if years > 0 else float(self.amount)
+
+    @property
+    def duration_years(self) -> float:
+        """
+        Retourne la durée du contrat en années.
+
+        Returns:
+            float: Durée en années (avec décimales)
+        """
+        return self.duration_months / 12

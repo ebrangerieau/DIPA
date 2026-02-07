@@ -17,7 +17,8 @@ class ContractCreate(BaseModel):
     """Schéma pour la création d'un contrat."""
     name: str = Field(..., min_length=1, max_length=255)
     supplier: str = Field(..., min_length=1, max_length=255)
-    amount: float = Field(..., gt=0)
+    amount: float = Field(..., gt=0, description="Montant total du contrat")
+    duration_months: int = Field(..., gt=0, description="Durée du contrat en mois")
     start_date: date
     end_date: date
     notice_period_days: int = Field(..., ge=0)
@@ -29,6 +30,7 @@ class ContractUpdate(BaseModel):
     name: str | None = None
     supplier: str | None = None
     amount: float | None = None
+    duration_months: int | None = None
     start_date: date | None = None
     end_date: date | None = None
     notice_period_days: int | None = None
@@ -42,6 +44,7 @@ class ContractResponse(BaseModel):
     name: str
     supplier: str
     amount: float
+    duration_months: int
     start_date: date
     end_date: date
     notice_period_days: int
@@ -53,7 +56,9 @@ class ContractResponse(BaseModel):
     is_expired: bool
     computed_status: str
     timeline_color: str
-    
+    annual_cost: float
+    duration_years: float
+
     class Config:
         from_attributes = True
 

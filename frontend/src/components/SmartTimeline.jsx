@@ -7,8 +7,10 @@ import { Timeline } from 'vis-timeline/standalone';
 import { DataSet } from 'vis-data';
 import 'vis-timeline/styles/vis-timeline-graph2d.css';
 import { useQuery } from '@tanstack/react-query';
+import { Edit2, Trash2 } from 'lucide-react';
 import contractsService from '../services/contractsService';
 import ticketsService from '../services/ticketsService';
+import EditContractModal from './EditContractModal';
 
 /**
  * Algorithme de Smart Stacking pour éviter les collisions.
@@ -74,9 +76,11 @@ export default function SmartTimeline() {
     const timelineRef = useRef(null);
     const timelineInstance = useRef(null);
     const [selectedItem, setSelectedItem] = useState(null);
+    const [editingContract, setEditingContract] = useState(null);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
     // Récupération des données
-    const { data: contractsData = [], isLoading: loadingContracts } = useQuery({
+    const { data: contractsData = [], isLoading: loadingContracts, refetch: refetchContracts } = useQuery({
         queryKey: ['contracts-timeline'],
         queryFn: contractsService.getTimelineData,
     });
@@ -85,6 +89,39 @@ export default function SmartTimeline() {
         queryKey: ['tickets-timeline'],
         queryFn: ticketsService.getTimelineData,
     });
+
+    // Gestion de la modification de contrat
+    const handleEditContract = async () => {
+        if (selectedItem?.metadata?.contract_id) {
+            try {
+                const contract = await contractsService.getById(selectedItem.metadata.contract_id);
+                setEditingContract(contract);
+                setIsEditModalOpen(true);
+                setSelectedItem(null);
+            } catch (error) {
+                console.error('Erreur lors de la récupération du contrat:', error);
+            }
+        }
+    };
+
+    const handleContractUpdated = () => {
+        refetchContracts();
+        setIsEditModalOpen(false);
+        setEditingContract(null);
+    };
+
+    const handleDeleteContract = async () => {
+        if (selectedItem?.metadata?.contract_id && window.confirm('Êtes-vous sûr de vouloir supprimer ce contrat ?')) {
+            try {
+                await contractsService.delete(selectedItem.metadata.contract_id);
+                refetchContracts();
+                setSelectedItem(null);
+            } catch (error) {
+                console.error('Erreur lors de la suppression du contrat:', error);
+                alert('Erreur lors de la suppression du contrat');
+            }
+        }
+    };
 
     useEffect(() => {
         if (!timelineRef.current || loadingContracts || loadingTickets) return;
@@ -247,20 +284,53 @@ export default function SmartTimeline() {
                                 </div>
                             )}
 
+                            {/* Actions pour les contrats */}
+                            {(selectedItem.type === 'contract-notice' || selectedItem.type === 'contract-milestone') && (
+                                <div className="pt-4 border-t border-gray-200 flex gap-3">
+                                    <button
+                                        onClick={handleEditContract}
+                                        className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
+                                    >
+                                        <Edit2 className="w-4 h-4 mr-2" />
+                                        Modifier
+                                    </button>
+                                    <button
+                                        onClick={handleDeleteContract}
+                                        className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                                    >
+                                        <Trash2 className="w-4 h-4 mr-2" />
+                                        Supprimer
+                                    </button>
+                                </div>
+                            )}
+
                             {selectedItem.metadata?.sharepoint_url && (
-                                <a
-                                    href={selectedItem.metadata.sharepoint_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
-                                >
-                                    Voir le PDF sur SharePoint
-                                </a>
+                                <div className="pt-3">
+                                    <a
+                                        href={selectedItem.metadata.sharepoint_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+                                    >
+                                        Voir le PDF sur SharePoint
+                                    </a>
+                                </div>
                             )}
                         </div>
                     </div>
                 </div>
             )}
+
+            {/* Modal d'édition de contrat */}
+            <EditContractModal
+                isOpen={isEditModalOpen}
+                onClose={() => {
+                    setIsEditModalOpen(false);
+                    setEditingContract(null);
+                }}
+                onContractUpdated={handleContractUpdated}
+                contract={editingContract}
+            />
         </div>
     );
 }
