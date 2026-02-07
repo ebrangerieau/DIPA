@@ -3,6 +3,7 @@ Configuration de l'application Cockpit IT.
 Gestion centralisée des variables d'environnement.
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import EmailStr, model_validator
 from typing import Optional
 
 
@@ -40,6 +41,11 @@ class Settings(BaseSettings):
     secret_key: str = "your-secret-key-change-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
+
+    # Bootstrap admin (optionnel)
+    bootstrap_admin_username: Optional[str] = None
+    bootstrap_admin_email: Optional[EmailStr] = None
+    bootstrap_admin_password: Optional[str] = None
     
     # CORS
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
@@ -56,6 +62,31 @@ class Settings(BaseSettings):
         if self.azure_authority:
             return self.azure_authority
         return f"https://login.microsoftonline.com/{self.azure_tenant_id}"
+
+    @model_validator(mode="after")
+    def validate_security_settings(self) -> "Settings":
+        """Valide les paramètres de sécurité sensibles."""
+        if not self.debug and self.secret_key == "your-secret-key-change-in-production":
+            raise ValueError(
+                "La variable SECRET_KEY doit être définie en production."
+            )
+
+        bootstrap_values = [
+            self.bootstrap_admin_username,
+            self.bootstrap_admin_email,
+            self.bootstrap_admin_password,
+        ]
+        if any(bootstrap_values) and not all(bootstrap_values):
+            raise ValueError(
+                "Les variables BOOTSTRAP_ADMIN_USERNAME, "
+                "BOOTSTRAP_ADMIN_EMAIL et BOOTSTRAP_ADMIN_PASSWORD "
+                "doivent être toutes renseignées."
+            )
+        if self.bootstrap_admin_password and len(self.bootstrap_admin_password) < 12:
+            raise ValueError(
+                "BOOTSTRAP_ADMIN_PASSWORD doit contenir au moins 12 caractères."
+            )
+        return self
 
 
 # Instance globale de configuration

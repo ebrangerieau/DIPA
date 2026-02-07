@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
     print("✅ Base de données initialisée")
     
     # Créer un utilisateur admin si l'authentification locale est activée
-    if settings.enable_local_auth:
+    if settings.enable_local_auth and settings.bootstrap_admin_username:
         from app.database import SessionLocal
         from app.models.user import User
         
@@ -32,17 +32,16 @@ async def lifespan(app: FastAPI):
             existing_admin = db.query(User).filter(User.is_admin == True).first()
             if not existing_admin:
                 admin = User(
-                    username="admin",
-                    email="admin@cockpit-it.local",
-                    hashed_password=User.hash_password("admin123"),
-                    full_name="Administrateur",
+                    username=settings.bootstrap_admin_username,
+                    email=settings.bootstrap_admin_email,
+                    hashed_password=User.hash_password(settings.bootstrap_admin_password),
+                    full_name="Administrateur (bootstrap)",
                     is_admin=True,
                     is_active=True
                 )
                 db.add(admin)
                 db.commit()
-                print("👤 Utilisateur admin créé (username: admin, password: admin123)")
-                print("⚠️  IMPORTANT: Changez ce mot de passe !")
+                print("👤 Utilisateur admin créé via bootstrap.")
         except Exception as e:
             print(f"⚠️  Erreur lors de la création de l'admin: {e}")
         finally:
