@@ -74,7 +74,19 @@ def get_graph_service() -> GraphService:
 
 
 # Stockage temporaire des états CSRF (en production, utiliser Redis ou une base de données)
-_csrf_states = set()
+_csrf_states: Dict[str, datetime] = {}
+_csrf_state_ttl = timedelta(minutes=10)
+
+
+def _cleanup_csrf_states() -> None:
+    """Nettoie les états CSRF expirés."""
+    now = datetime.utcnow()
+    expired_states = [
+        state for state, created_at in _csrf_states.items()
+        if now - created_at > _csrf_state_ttl
+    ]
+    for state in expired_states:
+        _csrf_states.pop(state, None)
 
 
 # ========== AUTHENTIFICATION LOCALE ==========
@@ -99,6 +111,18 @@ async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="L'authentification locale est désactivée"
         )
+
+    if user_data.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La création d'un compte administrateur via l'inscription est interdite"
+        )
+
+    if len(user_data.password) < 12:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le mot de passe doit contenir au moins 12 caractères"
+        )
     
     # Vérifier si l'utilisateur existe déjà
     existing_user = db.query(User).filter(
@@ -117,7 +141,7 @@ async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
         email=user_data.email,
         hashed_password=User.hash_password(user_data.password),
         full_name=user_data.full_name,
-        is_admin=user_data.is_admin
+        is_admin=False
     )
     
     db.add(user)
@@ -210,9 +234,12 @@ async def login(graph: GraphService = Depends(get_graph_service)):
     Returns:
         RedirectResponse: Redirection vers la page de connexion Microsoft
     """
+    # Nettoyage des états expirés
+    _cleanup_csrf_states()
+
     # Génération d'un état CSRF pour sécuriser le callback
     state = secrets.token_urlsafe(32)
-    _csrf_states.add(state)
+    _csrf_states[state] = datetime.utcnow()
     
     # Génération de l'URL d'authentification
     auth_url = graph.get_auth_url(state=state)
@@ -241,15 +268,26 @@ async def auth_callback(
     Raises:
         HTTPException: En cas d'erreur d'authentification
     """
+    # Nettoyage des états expirés
+    _cleanup_csrf_states()
+
     # Validation de l'état CSRF
-    if state not in _csrf_states:
+    created_at = _csrf_states.get(state)
+    if not created_at:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="État CSRF invalide"
         )
+
+    if datetime.utcnow() - created_at > _csrf_state_ttl:
+        _csrf_states.pop(state, None)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="État CSRF expiré"
+        )
     
     # Suppression de l'état utilisé
-    _csrf_states.discard(state)
+    _csrf_states.pop(state, None)
     
     try:
         # Échange du code contre un token
