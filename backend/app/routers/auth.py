@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from typing import Dict
+from uuid import UUID
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 import secrets
@@ -29,7 +30,7 @@ class UserCreate(BaseModel):
 
 class UserResponse(BaseModel):
     """Réponse utilisateur."""
-    id: str
+    id: UUID
     username: str
     email: str
     full_name: str | None
@@ -202,7 +203,7 @@ async def login_local(
     
     return LoginResponse(
         access_token=access_token,
-        user=UserResponse.from_orm(user)
+        user=UserResponse.model_validate(user)
     )
 
 
