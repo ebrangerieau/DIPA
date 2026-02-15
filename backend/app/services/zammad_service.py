@@ -63,7 +63,15 @@ class ZammadService:
             data = await self._make_request("/api/v1/tickets/search", params)
             
             tickets = []
-            for ticket_data in data.get("assets", {}).get("Ticket", {}).values():
+            # Gestion du format de réponse (List ou Dict avec assets)
+            tickets_source = data
+            if isinstance(data, dict):
+                tickets_source = data.get("assets", {}).get("Ticket", {}).values()
+            
+            for ticket_data in tickets_source:
+                if not isinstance(ticket_data, dict):
+                    continue
+                    
                 # Conversion des dates
                 created_at = datetime.fromisoformat(ticket_data["created_at"].replace("Z", "+00:00"))
                 updated_at = datetime.fromisoformat(ticket_data["updated_at"].replace("Z", "+00:00"))
@@ -123,7 +131,16 @@ class ZammadService:
             
             # Comptage par jour
             daily_counts = defaultdict(int)
-            for ticket_data in data.get("assets", {}).get("Ticket", {}).values():
+            
+            # Gestion du format de réponse (List ou Dict avec assets)
+            tickets_source = data
+            if isinstance(data, dict):
+                tickets_source = data.get("assets", {}).get("Ticket", {}).values()
+            
+            for ticket_data in tickets_source:
+                if not isinstance(ticket_data, dict):
+                    continue
+                    
                 if ticket_data.get("close_at"):
                     close_date = datetime.fromisoformat(
                         ticket_data["close_at"].replace("Z", "+00:00")
