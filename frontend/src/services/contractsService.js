@@ -1,61 +1,65 @@
 /**
  * Service API pour les contrats.
  */
-import axios from 'axios';
-import { API_ENDPOINTS } from '../config/api';
+import api, { downloadBlob, filenameFromResponse } from '../lib/api';
 
-const api = axios.create({
-    headers: {
-        'Content-Type': 'application/json',
-    },
-});
+const cleanParams = (params = {}) =>
+    Object.fromEntries(Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined));
 
 export const contractsService = {
-    /**
-     * Récupère tous les contrats.
-     */
     async getAll(params = {}) {
-        const response = await api.get(API_ENDPOINTS.CONTRACTS, { params });
-        return response.data;
+        const { data } = await api.get('/contracts', { params: cleanParams(params) });
+        return data;
     },
 
-    /**
-     * Récupère un contrat par ID.
-     */
     async getById(id) {
-        const response = await api.get(`${API_ENDPOINTS.CONTRACTS}/${id}`);
-        return response.data;
+        const { data } = await api.get(`/contracts/${id}`);
+        return data;
     },
 
-    /**
-     * Crée un nouveau contrat.
-     */
-    async create(contractData) {
-        const response = await api.post(API_ENDPOINTS.CONTRACTS, contractData);
-        return response.data;
+    async getEvents(id) {
+        const { data } = await api.get(`/contracts/${id}/events`);
+        return data;
     },
 
-    /**
-     * Met à jour un contrat.
-     */
-    async update(id, contractData) {
-        const response = await api.put(`${API_ENDPOINTS.CONTRACTS}/${id}`, contractData);
-        return response.data;
+    async getSuppliers() {
+        const { data } = await api.get('/contracts/suppliers');
+        return data;
     },
 
-    /**
-     * Supprime un contrat.
-     */
+    async create(contract) {
+        const { data } = await api.post('/contracts', contract);
+        return data;
+    },
+
+    async update(id, contract) {
+        const { data } = await api.put(`/contracts/${id}`, contract);
+        return data;
+    },
+
     async delete(id) {
-        await api.delete(`${API_ENDPOINTS.CONTRACTS}/${id}`);
+        await api.delete(`/contracts/${id}`);
     },
 
-    /**
-     * Récupère les données de timeline des contrats.
-     */
+    async setDecision(id, decision, comment) {
+        const { data } = await api.post(`/contracts/${id}/decision`, { decision, comment });
+        return data;
+    },
+
+    async renew(id, payload) {
+        const { data } = await api.post(`/contracts/${id}/renew`, payload);
+        return data;
+    },
+
     async getTimelineData() {
-        const response = await api.get(API_ENDPOINTS.CONTRACTS_TIMELINE);
-        return response.data;
+        const { data } = await api.get('/contracts/timeline/data');
+        return data;
+    },
+
+    /** Télécharge la liste filtrée au format CSV (Excel). */
+    async exportCsv(params = {}) {
+        const response = await api.get('/contracts/export.csv', { params: cleanParams(params), responseType: 'blob' });
+        downloadBlob(response.data, filenameFromResponse(response, 'contrats.csv'));
     },
 };
 

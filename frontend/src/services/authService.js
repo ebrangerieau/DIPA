@@ -1,75 +1,40 @@
 /**
- * Service d'authentification.
+ * Service d'authentification (session par cookie httpOnly).
  */
-import axios from 'axios';
-import { API_ENDPOINTS } from '../config/api';
-
-const api = axios.create({
-    headers: {
-        'Content-Type': 'application/json',
-    },
-});
+import api, { API_BASE_URL } from '../lib/api';
 
 export const authService = {
-    /**
-     * Login avec username/password (authentification locale).
-     */
+    async getConfig() {
+        const { data } = await api.get('/auth/config', { skipAuthHandler: true });
+        return data;
+    },
+
+    /** Profil de l'utilisateur connecté (401 si aucune session). */
+    async me() {
+        const { data } = await api.get('/auth/me', { skipAuthHandler: true });
+        return data;
+    },
+
     async loginLocal(username, password) {
-        const formData = new URLSearchParams();
-        formData.append('username', username);
-        formData.append('password', password);
-
-        const response = await api.post(
-            `${API_ENDPOINTS.AUTH_LOGIN}/local`,
-            formData,
-            {
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-            }
-        );
-
-        return response.data;
+        const form = new URLSearchParams({ username, password });
+        const { data } = await api.post('/auth/login/local', form, { skipAuthHandler: true });
+        return data.user;
     },
 
-    /**
-     * Récupère le profil de l'utilisateur connecté.
-     */
-    async getProfile(token) {
-        const response = await api.get(`${API_ENDPOINTS.AUTH_ME.replace('/me', '/profile')}`, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
+    async logout() {
+        await api.post('/auth/logout', null, { skipAuthHandler: true });
+    },
+
+    async changePassword(currentPassword, newPassword) {
+        await api.post('/auth/change-password', {
+            current_password: currentPassword,
+            new_password: newPassword,
         });
-        return response.data;
     },
 
-    /**
-     * Stocke le token dans le localStorage.
-     */
-    setToken(token) {
-        localStorage.setItem('access_token', token);
-    },
-
-    /**
-     * Récupère le token du localStorage.
-     */
-    getToken() {
-        return localStorage.getItem('access_token');
-    },
-
-    /**
-     * Supprime le token (logout).
-     */
-    removeToken() {
-        localStorage.removeItem('access_token');
-    },
-
-    /**
-     * Vérifie si l'utilisateur est connecté.
-     */
-    isAuthenticated() {
-        return !!this.getToken();
+    /** URL de connexion Microsoft (navigation complète, pas d'appel XHR). */
+    ssoLoginUrl() {
+        return `${API_BASE_URL}/auth/login`;
     },
 };
 

@@ -1,12 +1,24 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import AppLayout from './components/layout/AppLayout'
+import { PageSpinner } from './components/common/Feedback'
+import { useAuth } from './context/AuthContext'
+import Admin from './pages/Admin'
+import Contracts from './pages/Contracts'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
-import authService from './services/authService'
 
 // Composant pour protéger les routes
-function ProtectedRoute({ children }) {
-    const isAuthenticated = authService.isAuthenticated();
-    return isAuthenticated ? children : <Navigate to="/login" replace />;
+function RequireAuth({ children }) {
+    const { user, loading } = useAuth();
+    const location = useLocation();
+    if (loading) return <PageSpinner />;
+    if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return children;
+}
+
+function RequireAdmin({ children }) {
+    const { isAdmin } = useAuth();
+    return isAdmin ? children : <Navigate to="/" replace />;
 }
 
 function App() {
@@ -15,13 +27,24 @@ function App() {
             <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route
-                    path="/"
                     element={
-                        <ProtectedRoute>
-                            <Dashboard />
-                        </ProtectedRoute>
+                        <RequireAuth>
+                            <AppLayout />
+                        </RequireAuth>
                     }
-                />
+                >
+                    <Route index element={<Dashboard />} />
+                    <Route path="contrats" element={<Contracts />} />
+                    <Route
+                        path="admin"
+                        element={
+                            <RequireAdmin>
+                                <Admin />
+                            </RequireAdmin>
+                        }
+                    />
+                </Route>
+                <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
         </Router>
     )
