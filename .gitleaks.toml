@@ -1,0 +1,10 @@
+# Configuration de gitleaks (détection de secrets, voir .github/workflows/ci.yml)
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Valeurs factices des tests et fichiers d'exemple"
+paths = [
+    '''backend/tests/.*''',
+    '''.*\.env\.example$''',
+]
