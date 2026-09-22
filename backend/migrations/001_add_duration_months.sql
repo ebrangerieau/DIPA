@@ -1,18 +1,24 @@
--- Migration: Ajout du champ duration_months à la table contracts
--- Date: 2026-02-07
--- Description: Ajoute le champ duration_months pour stocker la durée du contrat en mois
+-- Migration 001 : durée variable des contrats (colonne duration_months)
+-- Date : 2026-02-07 (rendue idempotente le 2026-09-22 pour l'exécution automatique)
+-- La durée n'est recalculée que si la colonne vient d'être créée : une base où la
+-- migration avait déjà été appliquée à la main n'est pas modifiée.
 
--- Ajouter la colonne duration_months avec une valeur par défaut de 12 mois
-ALTER TABLE contracts
-ADD COLUMN IF NOT EXISTS duration_months INTEGER NOT NULL DEFAULT 12;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'contracts' AND column_name = 'duration_months'
+    ) THEN
+        ALTER TABLE contracts ADD COLUMN duration_months INTEGER NOT NULL DEFAULT 12;
 
--- Mettre à jour les contrats existants pour calculer la durée en fonction des dates
--- (approximation basée sur la différence entre start_date et end_date)
-UPDATE contracts
-SET duration_months = EXTRACT(YEAR FROM AGE(end_date, start_date)) * 12 +
-                      EXTRACT(MONTH FROM AGE(end_date, start_date))
-WHERE duration_months = 12; -- Ne mettre à jour que ceux avec la valeur par défaut
+        -- Durée approximative à partir des dates (du 01/01 au 31/12 = 12 mois)
+        UPDATE contracts
+        SET duration_months = GREATEST(1, (
+            EXTRACT(YEAR FROM AGE(end_date + 1, start_date)) * 12
+            + EXTRACT(MONTH FROM AGE(end_date + 1, start_date))
+        )::INTEGER);
+    END IF;
+END $$;
 
--- Ajouter un commentaire sur la colonne
 COMMENT ON COLUMN contracts.duration_months IS 'Durée du contrat en mois';
 COMMENT ON COLUMN contracts.amount IS 'Montant total du contrat';

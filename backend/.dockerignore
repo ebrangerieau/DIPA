@@ -1,0 +1,22 @@
+# Secrets : jamais dans une image Docker (fournis par env_file au démarrage)
+.env
+.env.*
+!.env.example
+
+# Environnements et caches Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Données locales
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Tests (inutiles dans l'image)
+tests/
