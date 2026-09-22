@@ -1,169 +1,95 @@
 """
-Service pour interagir avec Microsoft Graph API.
-Gère l'authentification SSO et l'accès aux fichiers SharePoint.
+Service Microsoft Entra ID / Graph API.
+- Connexion SSO (flux « authorization code » avec PKCE, géré par MSAL) ;
+- Envoi d'e-mails via Graph (permission d'application Mail.Send).
 """
-import msal
+import logging
+from functools import lru_cache
+
 import httpx
-from typing import Dict, Optional
+import msal
+
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+GRAPH_DEFAULT_SCOPE = ["https://graph.microsoft.com/.default"]
+
+
+class SSOError(Exception):
+    """Échec de l'authentification Microsoft (réponse invalide, refus, état CSRF)."""
+
+
+class GraphMailError(Exception):
+    """Échec d'envoi d'un e-mail via Graph."""
+
+
+@lru_cache(maxsize=1)
+def _msal_app() -> msal.ConfidentialClientApplication:
+    # Créée à la demande : MSAL interroge l'autorité Microsoft lors de l'instanciation.
+    return msal.ConfidentialClientApplication(
+        settings.azure_client_id,
+        authority=settings.azure_authority_url,
+        client_credential=settings.azure_client_secret,
+    )
 
 
 class GraphService:
-    """
-    Service pour interagir avec Microsoft Graph API.
-    Gère l'authentification via Entra ID (Azure AD) et l'accès aux ressources.
-    """
-    
+    """Accès à Microsoft Entra ID et à Microsoft Graph."""
+
     def __init__(self):
-        self.client_id = settings.azure_client_id
-        self.client_secret = settings.azure_client_secret
-        self.authority = settings.azure_authority_url
-        self.redirect_uri = settings.azure_redirect_uri
-        self.graph_endpoint = settings.graph_api_endpoint
-        
-        # Scopes pour l'authentification
-        self.scopes = [
-            "User.Read",
-            "Files.Read.All",
-            "Sites.Read.All"
-        ]
-        
-        # Création de l'application MSAL
-        self.app = msal.ConfidentialClientApplication(
-            self.client_id,
-            authority=self.authority,
-            client_credential=self.client_secret
+        if not settings.sso_enabled:
+            raise SSOError("L'authentification Microsoft n'est pas configurée")
+        self.app = _msal_app()
+        self.graph_endpoint = settings.graph_api_endpoint.rstrip("/")
+
+    # ---------- SSO ----------
+
+    def initiate_login(self) -> dict:
+        """Prépare le flux d'autorisation (state, nonce, PKCE) et l'URL Microsoft."""
+        return self.app.initiate_auth_code_flow(
+            scopes=settings.sso_scopes,
+            redirect_uri=settings.azure_redirect_uri,
         )
-    
-    def get_auth_url(self, state: str = None) -> str:
-        """
-        Génère l'URL d'authentification pour rediriger l'utilisateur.
-        
-        Args:
-            state: État optionnel pour la sécurité CSRF
-        
-        Returns:
-            str: URL d'authentification
-        """
-        auth_url = self.app.get_authorization_request_url(
-            scopes=self.scopes,
-            redirect_uri=self.redirect_uri,
-            state=state
-        )
-        return auth_url
-    
-    async def authenticate_user(self, authorization_code: str) -> Dict:
-        """
-        Authentifie l'utilisateur avec le code d'autorisation OAuth.
-        
-        Args:
-            authorization_code: Code d'autorisation reçu du callback
-        
-        Returns:
-            Dict: Informations du token (access_token, id_token, etc.)
-        
-        Raises:
-            Exception: En cas d'erreur d'authentification
-        """
-        result = self.app.acquire_token_by_authorization_code(
-            authorization_code,
-            scopes=self.scopes,
-            redirect_uri=self.redirect_uri
-        )
-        
+
+    def complete_login(self, flow: dict, auth_response: dict) -> dict:
+        """Échange le code d'autorisation et retourne les revendications (claims) de l'id_token."""
+        try:
+            result = self.app.acquire_token_by_auth_code_flow(flow, auth_response)
+        except ValueError as exc:  # state absent ou différent : tentative rejouée ou falsifiée
+            raise SSOError("Réponse d'authentification invalide") from exc
         if "error" in result:
-            raise Exception(f"Erreur d'authentification: {result.get('error_description')}")
-        
-        return result
-    
-    async def get_user_info(self, access_token: str) -> Dict:
-        """
-        Récupère les informations de l'utilisateur connecté.
-        
-        Args:
-            access_token: Token d'accès Microsoft
-        
-        Returns:
-            Dict: Informations utilisateur (displayName, mail, etc.)
-        """
-        headers = {"Authorization": f"Bearer {access_token}"}
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.graph_endpoint}/me",
-                headers=headers,
-                timeout=30.0
-            )
-            response.raise_for_status()
-            return response.json()
-    
-    async def get_file_content(self, access_token: str, file_url: str) -> bytes:
-        """
-        Récupère le contenu d'un fichier depuis SharePoint.
-        
-        Args:
-            access_token: Token d'accès Microsoft
-            file_url: URL du fichier SharePoint
-        
-        Returns:
-            bytes: Contenu du fichier
-        """
-        headers = {"Authorization": f"Bearer {access_token}"}
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                file_url,
-                headers=headers,
-                timeout=60.0
-            )
-            response.raise_for_status()
-            return response.content
-    
-    async def get_sharepoint_file_metadata(
-        self, 
-        access_token: str, 
-        site_id: str, 
-        file_path: str
-    ) -> Dict:
-        """
-        Récupère les métadonnées d'un fichier SharePoint.
-        
-        Args:
-            access_token: Token d'accès Microsoft
-            site_id: ID du site SharePoint
-            file_path: Chemin du fichier
-        
-        Returns:
-            Dict: Métadonnées du fichier
-        """
-        headers = {"Authorization": f"Bearer {access_token}"}
-        endpoint = f"{self.graph_endpoint}/sites/{site_id}/drive/root:/{file_path}"
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                endpoint,
-                headers=headers,
-                timeout=30.0
-            )
-            response.raise_for_status()
-            return response.json()
-    
-    def refresh_token(self, refresh_token: str) -> Dict:
-        """
-        Rafraîchit le token d'accès.
-        
-        Args:
-            refresh_token: Token de rafraîchissement
-        
-        Returns:
-            Dict: Nouveau token d'accès
-        """
-        result = self.app.acquire_token_by_refresh_token(
-            refresh_token,
-            scopes=self.scopes
+            logger.warning("Refus Entra ID : %s", result.get("error_description") or result.get("error"))
+            raise SSOError("Microsoft a refusé l'authentification")
+        claims = result.get("id_token_claims") or {}
+        if not claims.get("oid"):
+            raise SSOError("Jeton Microsoft incomplet")
+        return claims
+
+    # ---------- E-mails ----------
+
+    def _app_token(self) -> str:
+        result = self.app.acquire_token_for_client(scopes=GRAPH_DEFAULT_SCOPE)
+        if "access_token" not in result:
+            logger.warning("Jeton Graph refusé : %s", result.get("error_description") or result.get("error"))
+            raise GraphMailError("Impossible d'obtenir un jeton Microsoft Graph (vérifiez Mail.Send)")
+        return result["access_token"]
+
+    def send_mail(self, sender: str, recipients: list[str], subject: str, html_body: str) -> None:
+        payload = {
+            "message": {
+                "subject": subject,
+                "body": {"contentType": "HTML", "content": html_body},
+                "toRecipients": [{"emailAddress": {"address": r}} for r in recipients],
+            },
+            "saveToSentItems": False,
+        }
+        response = httpx.post(
+            f"{self.graph_endpoint}/users/{sender}/sendMail",
+            json=payload,
+            headers={"Authorization": f"Bearer {self._app_token()}"},
+            timeout=30.0,
         )
-        
-        if "error" in result:
-            raise Exception(f"Erreur de rafraîchissement: {result.get('error_description')}")
-        
-        return result
+        if response.status_code >= 400:
+            logger.warning("Envoi Graph refusé (HTTP %s)", response.status_code)
+            raise GraphMailError(f"Envoi refusé par Microsoft Graph (HTTP {response.status_code})")

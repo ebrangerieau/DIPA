@@ -1,376 +1,216 @@
 """
-Router pour l'authentification (locale et SSO avec Microsoft Entra ID).
+Router d'authentification : comptes locaux et SSO Microsoft Entra ID.
 """
-from fastapi import APIRouter, HTTPException, status, Query, Response, Depends
+import logging
+from datetime import timedelta
+from urllib.parse import urlencode
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
-from typing import Dict
-from uuid import UUID
-from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-import secrets
 
-from app.services.graph_service import GraphService
+from app import security, timeutils
+from app.auth import (
+    clear_session_cookie,
+    client_ip,
+    get_current_user,
+    set_session_cookie,
+)
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
-from app.auth import create_access_token, get_current_user
+from app.rate_limit import LoginRateLimiter
+from app.schemas.users import AuthConfig, LoginResponse, PasswordChange, UserOut
+from app.services import user_service
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/auth", tags=["authentification"])
+
+login_limiter = LoginRateLimiter(settings.login_max_attempts, settings.login_lockout_minutes * 60)
+
+SSO_FLOW_COOKIE = "cockpit_sso_flow"
+SSO_FLOW_TTL = timedelta(minutes=10)
+SSO_COOKIE_PATH = "/api/auth"
 
 
-# Schémas Pydantic pour l'authentification locale
-class UserCreate(BaseModel):
-    """Schéma pour créer un utilisateur."""
-    username: str
-    email: EmailStr
-    password: str
-    full_name: str | None = None
-    is_admin: bool = False
-
-
-class UserResponse(BaseModel):
-    """Réponse utilisateur."""
-    id: UUID
-    username: str
-    email: str
-    full_name: str | None
-    is_admin: bool
-    is_active: bool
-    
-    class Config:
-        from_attributes = True
-
-
-class LoginResponse(BaseModel):
-    """Réponse de login."""
-    access_token: str
-    token_type: str = "bearer"
-    user: UserResponse
-
-
-# Schémas Pydantic pour SSO
-class UserInfo(BaseModel):
-    """Informations utilisateur."""
-    id: str
-    display_name: str
-    email: str
-    job_title: str | None = None
-
-
-class TokenResponse(BaseModel):
-    """Réponse contenant le token d'accès."""
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    refresh_token: str | None = None
-
-
-# Router
-router = APIRouter(prefix="/auth", tags=["authentication"])
-
-
-def get_graph_service() -> GraphService:
-    """Dépendance pour obtenir le service Graph."""
-    return GraphService()
-
-
-# Stockage temporaire des états CSRF (en production, utiliser Redis ou une base de données)
-_csrf_states: Dict[str, datetime] = {}
-_csrf_state_ttl = timedelta(minutes=10)
-
-
-def _cleanup_csrf_states() -> None:
-    """Nettoie les états CSRF expirés."""
-    now = datetime.utcnow()
-    expired_states = [
-        state for state, created_at in _csrf_states.items()
-        if now - created_at > _csrf_state_ttl
-    ]
-    for state in expired_states:
-        _csrf_states.pop(state, None)
+@router.get("/config", response_model=AuthConfig)
+def auth_config():
+    """Modes de connexion disponibles (affichés sur la page de connexion)."""
+    return AuthConfig(
+        app_name=settings.app_name,
+        app_version=settings.app_version,
+        local_enabled=settings.enable_local_auth,
+        sso_enabled=settings.sso_enabled,
+    )
 
 
 # ========== AUTHENTIFICATION LOCALE ==========
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
-    """
-    Crée un nouvel utilisateur (authentification locale).
-    
-    Args:
-        user_data: Données de l'utilisateur
-        db: Session de base de données
-    
-    Returns:
-        UserResponse: Utilisateur créé
-    
-    Raises:
-        HTTPException: Si l'utilisateur existe déjà
-    """
-    if not settings.enable_local_auth:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="L'authentification locale est désactivée"
-        )
-
-    if user_data.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="La création d'un compte administrateur via l'inscription est interdite"
-        )
-
-    if len(user_data.password) < 12:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Le mot de passe doit contenir au moins 12 caractères"
-        )
-    
-    # Vérifier si l'utilisateur existe déjà
-    existing_user = db.query(User).filter(
-        (User.username == user_data.username) | (User.email == user_data.email)
-    ).first()
-    
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nom d'utilisateur ou email déjà utilisé"
-        )
-    
-    # Créer l'utilisateur
-    user = User(
-        username=user_data.username,
-        email=user_data.email,
-        hashed_password=User.hash_password(user_data.password),
-        full_name=user_data.full_name,
-        is_admin=False
-    )
-    
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    
-    return user
-
-
 @router.post("/login/local", response_model=LoginResponse)
-async def login_local(
+def login_local(
+    request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
-    Authentification locale avec username/password.
-    
-    Args:
-        form_data: Formulaire OAuth2 (username, password)
-        db: Session de base de données
-    
-    Returns:
-        LoginResponse: Token d'accès et informations utilisateur
-    
-    Raises:
-        HTTPException: Si les identifiants sont incorrects
+    Connexion par identifiant (ou e-mail) et mot de passe.
+    Pose le cookie de session httpOnly ; le jeton est aussi renvoyé pour Swagger.
     """
     if not settings.enable_local_auth:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="L'authentification locale est désactivée")
+
+    # Limitation par identifiant : derrière deux reverse proxies, l'IP transmise
+    # (X-Forwarded-For) peut être falsifiée et ne constitue pas une clé fiable.
+    limiter_key = form_data.username.strip().lower()
+    retry_after = login_limiter.retry_after(limiter_key)
+    if retry_after:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="L'authentification locale est désactivée"
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Trop de tentatives. Réessayez dans {max(1, retry_after // 60)} minute(s).",
+            headers={"Retry-After": str(retry_after)},
         )
-    
-    # Rechercher l'utilisateur
-    user = db.query(User).filter(User.username == form_data.username).first()
-    
-    if not user or not user.verify_password(form_data.password):
+
+    user = user_service.find_by_login(db, form_data.username)
+    if user is None or not user.has_local_password:
+        security.burn_password_check()
+        valid = False
+    else:
+        valid = user.verify_password(form_data.password)
+    if not valid:
+        login_limiter.register_failure(limiter_key)
+        logger.warning("Échec de connexion locale pour « %s » depuis %s", form_data.username, client_ip(request))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Identifiants incorrects",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
     if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Compte désactivé")
+    if security.is_compromised_password(form_data.password):
+        # Mot de passe publié (dépôt public) : n'importe qui pourrait l'utiliser, connexion bloquée
+        logger.warning("Connexion bloquée pour « %s » : mot de passe publié", user.username)
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Compte utilisateur inactif"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ce mot de passe a été publié et n'est plus accepté. "
+                   "Un administrateur doit le réinitialiser (scripts/create_admin.py).",
         )
-    
-    # Mettre à jour la date de dernière connexion
-    user.last_login = datetime.utcnow()
+
+    login_limiter.reset(limiter_key)
+    # Mot de passe trop faible ou publié : changement imposé dès la connexion
+    if security.password_policy_error(form_data.password):
+        user.must_change_password = True
+    user.last_login = timeutils.utcnow()
     db.commit()
-    
-    # Créer le token JWT
-    access_token = create_access_token(
-        data={"sub": user.username, "email": user.email, "is_admin": user.is_admin}
-    )
-    
-    return LoginResponse(
-        access_token=access_token,
-        user=UserResponse.model_validate(user)
-    )
+    db.refresh(user)
+
+    token = security.create_access_token(user)
+    set_session_cookie(response, token)
+    return LoginResponse(access_token=token, user=UserOut.model_validate(user))
 
 
-@router.get("/profile", response_model=UserResponse)
-async def get_profile(current_user: User = Depends(get_current_user)):
-    """
-    Récupère le profil de l'utilisateur connecté.
-    
-    Args:
-        current_user: Utilisateur actuel (injecté par dépendance)
-    
-    Returns:
-        UserResponse: Profil utilisateur
-    """
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(response: Response):
+    """Supprime le cookie de session."""
+    clear_session_cookie(response)
+
+
+@router.get("/me", response_model=UserOut)
+def get_me(current_user: User = Depends(get_current_user)):
+    """Profil de l'utilisateur connecté."""
     return current_user
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: PasswordChange,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Changement de son propre mot de passe (comptes locaux). Les autres sessions sont fermées."""
+    if not current_user.has_local_password:
+        raise HTTPException(status_code=400, detail="Ce compte se connecte avec Microsoft : pas de mot de passe local")
+    if not current_user.verify_password(payload.current_password):
+        raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
+    error = security.password_policy_error(payload.new_password)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=400, detail="Le nouveau mot de passe doit être différent de l'actuel")
+
+    current_user.hashed_password = User.hash_password(payload.new_password)
+    current_user.must_change_password = False
+    current_user.revoke_sessions()
+    db.commit()
+    set_session_cookie(response, security.create_access_token(current_user))
 
 
 # ========== AUTHENTIFICATION SSO (MICROSOFT ENTRA ID) ==========
 
-@router.get("/login")
-async def login(graph: GraphService = Depends(get_graph_service)):
-    """
-    Initie le flux d'authentification SSO.
-    Redirige l'utilisateur vers Microsoft Entra ID.
-    
-    Args:
-        graph: Service Graph
-    
-    Returns:
-        RedirectResponse: Redirection vers la page de connexion Microsoft
-    """
-    # Nettoyage des états expirés
-    _cleanup_csrf_states()
+def _frontend_redirect(path: str = "/", **params) -> RedirectResponse:
+    base = settings.frontend_url.rstrip("/")
+    query = f"?{urlencode(params)}" if params else ""
+    return RedirectResponse(url=f"{base}{path}{query}", status_code=status.HTTP_302_FOUND)
 
-    # Génération d'un état CSRF pour sécuriser le callback
-    state = secrets.token_urlsafe(32)
-    _csrf_states[state] = datetime.utcnow()
-    
-    # Génération de l'URL d'authentification
-    auth_url = graph.get_auth_url(state=state)
-    
-    return RedirectResponse(url=auth_url)
+
+@router.get("/login")
+def sso_login():
+    """Redirige vers Microsoft Entra ID (flux authorization code + PKCE)."""
+    if not settings.sso_enabled:
+        return _frontend_redirect("/login", error="sso_indisponible")
+
+    from app.services.graph_service import GraphService, SSOError
+
+    try:
+        flow = GraphService().initiate_login()
+    except SSOError:
+        return _frontend_redirect("/login", error="sso_indisponible")
+    except Exception:
+        logger.exception("Initialisation du SSO impossible")
+        return _frontend_redirect("/login", error="sso_indisponible")
+
+    auth_uri = flow.pop("auth_uri")
+    response = RedirectResponse(url=auth_uri, status_code=status.HTTP_302_FOUND)
+    # Le flux (state, nonce, code_verifier) est conservé dans un cookie signé et éphémère
+    response.set_cookie(
+        SSO_FLOW_COOKIE,
+        security.encode_signed({"flow": flow}, "sso_flow", SSO_FLOW_TTL),
+        max_age=int(SSO_FLOW_TTL.total_seconds()),
+        httponly=True,
+        secure=settings.cookie_secure_effective,
+        samesite="lax",
+        path=SSO_COOKIE_PATH,
+    )
+    return response
 
 
 @router.get("/callback")
-async def auth_callback(
-    code: str = Query(..., description="Code d'autorisation"),
-    state: str = Query(..., description="État CSRF"),
-    graph: GraphService = Depends(get_graph_service)
-):
-    """
-    Callback OAuth après authentification.
-    Échange le code d'autorisation contre un token d'accès.
-    
-    Args:
-        code: Code d'autorisation reçu de Microsoft
-        state: État CSRF pour validation
-        graph: Service Graph
-    
-    Returns:
-        TokenResponse: Token d'accès et informations
-    
-    Raises:
-        HTTPException: En cas d'erreur d'authentification
-    """
-    # Nettoyage des états expirés
-    _cleanup_csrf_states()
+def sso_callback(request: Request, db: Session = Depends(get_db)):
+    """Retour de Microsoft : validation, création/mise à jour du compte, ouverture de session."""
+    from app.services.graph_service import GraphService, SSOError
 
-    # Validation de l'état CSRF
-    created_at = _csrf_states.get(state)
-    if not created_at:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="État CSRF invalide"
-        )
-
-    if datetime.utcnow() - created_at > _csrf_state_ttl:
-        _csrf_states.pop(state, None)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="État CSRF expiré"
-        )
-    
-    # Suppression de l'état utilisé
-    _csrf_states.pop(state, None)
-    
+    flow_token = request.cookies.get(SSO_FLOW_COOKIE)
+    if not flow_token:
+        return _frontend_redirect("/login", error="session_expiree")
     try:
-        # Échange du code contre un token
-        token_data = await graph.authenticate_user(code)
-        
-        return TokenResponse(
-            access_token=token_data["access_token"],
-            expires_in=token_data.get("expires_in", 3600),
-            refresh_token=token_data.get("refresh_token")
-        )
-    
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Erreur d'authentification: {str(e)}"
-        )
+        flow = security.decode_signed(flow_token, "sso_flow")["flow"]
+        claims = GraphService().complete_login(flow, dict(request.query_params))
+        user = user_service.provision_sso_user(db, claims)
+    except (security.TokenError, KeyError):
+        return _frontend_redirect("/login", error="session_expiree")
+    except user_service.AccessDenied as exc:
+        logger.warning("Connexion SSO refusée : %s", exc)
+        return _frontend_redirect("/login", error="acces_refuse")
+    except SSOError:
+        return _frontend_redirect("/login", error="sso_echec")
 
-
-@router.get("/me", response_model=UserInfo)
-async def get_current_user(
-    access_token: str = Query(..., description="Token d'accès Microsoft"),
-    graph: GraphService = Depends(get_graph_service)
-):
-    """
-    Récupère les informations de l'utilisateur connecté.
-    
-    Args:
-        access_token: Token d'accès Microsoft
-        graph: Service Graph
-    
-    Returns:
-        UserInfo: Informations utilisateur
-    
-    Raises:
-        HTTPException: En cas d'erreur
-    """
-    try:
-        user_data = await graph.get_user_info(access_token)
-        
-        return UserInfo(
-            id=user_data["id"],
-            display_name=user_data.get("displayName", ""),
-            email=user_data.get("mail", user_data.get("userPrincipalName", "")),
-            job_title=user_data.get("jobTitle")
-        )
-    
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Erreur lors de la récupération des informations utilisateur: {str(e)}"
-        )
-
-
-@router.post("/refresh")
-async def refresh_access_token(
-    refresh_token: str = Query(..., description="Token de rafraîchissement"),
-    graph: GraphService = Depends(get_graph_service)
-):
-    """
-    Rafraîchit le token d'accès.
-    
-    Args:
-        refresh_token: Token de rafraîchissement
-        graph: Service Graph
-    
-    Returns:
-        TokenResponse: Nouveau token d'accès
-    
-    Raises:
-        HTTPException: En cas d'erreur
-    """
-    try:
-        token_data = graph.refresh_token(refresh_token)
-        
-        return TokenResponse(
-            access_token=token_data["access_token"],
-            expires_in=token_data.get("expires_in", 3600),
-            refresh_token=token_data.get("refresh_token")
-        )
-    
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Erreur lors du rafraîchissement du token: {str(e)}"
-        )
+    if not user.is_active:
+        response = _frontend_redirect("/login", error="compte_en_attente")
+    else:
+        response = _frontend_redirect("/")
+        set_session_cookie(response, security.create_access_token(user))
+    response.delete_cookie(SSO_FLOW_COOKIE, path=SSO_COOKIE_PATH)
+    return response

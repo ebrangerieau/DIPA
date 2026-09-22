@@ -1,7 +1,6 @@
 """
 Services de l'application Cockpit IT.
 """
-from app.services.zammad_service import ZammadService
-from app.services.graph_service import GraphService
+from app.services.zammad_service import ZammadError, ZammadService
 
-__all__ = ["ZammadService", "GraphService"]
+__all__ = ["ZammadError", "ZammadService"]

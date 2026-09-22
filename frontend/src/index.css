@@ -2,14 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Styles globaux */
+/* Styles globaux (polices système : aucun appel à un service tiers) */
 :root {
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: Inter, 'Segoe UI', system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: light dark;
-  
+  color: #111827;
+  color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -26,28 +25,98 @@ body {
   min-height: 100vh;
 }
 
-/* Styles pour vis-timeline */
+@layer components {
+  .card {
+    @apply rounded-xl border border-gray-200 bg-white shadow-sm;
+  }
+
+  .label {
+    @apply mb-1 block text-sm font-medium text-gray-700;
+  }
+
+  .input {
+    @apply block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm
+      placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30
+      disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors
+      focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary-600 text-white hover:bg-primary-700;
+  }
+
+  .btn-secondary {
+    @apply btn border border-gray-300 bg-white text-gray-700 hover:bg-gray-50;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+
+  .btn-ghost {
+    @apply btn px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+
+  .badge-green { @apply badge bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20; }
+  .badge-amber { @apply badge bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20; }
+  .badge-red { @apply badge bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20; }
+  .badge-gray { @apply badge bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-500/20; }
+  .badge-blue { @apply badge bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/20; }
+  .badge-violet { @apply badge bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-600/20; }
+
+  .table-th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500;
+  }
+
+  .table-td {
+    @apply px-4 py-3 text-sm text-gray-700;
+  }
+}
+
+/* ---------- Smart Timeline (vis-timeline) ---------- */
 .vis-timeline {
-  border: 1px solid #e5e7eb;
-  border-radius: 0.5rem;
-  font-family: 'Inter', sans-serif;
+  border: none;
+  font-family: inherit;
+}
+
+.vis-labelset .vis-label .vis-inner {
+  font-weight: 600;
+  color: #374151;
+  padding: 8px 12px;
 }
 
 .vis-item {
   border-radius: 0.375rem;
-  border-width: 0;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
+  cursor: pointer;
+}
+
+.vis-item.vis-range {
+  color: #fff;
+  border-width: 1px;
+}
+
+.vis-item.vis-point {
+  color: #111827;
 }
 
 .vis-item.vis-selected {
-  border-width: 2px;
-  border-color: #0ea5e9;
+  box-shadow: 0 0 0 2px #0ea5e9;
 }
 
 .vis-time-axis .vis-text {
   color: #6b7280;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
 }
 
 .vis-time-axis .vis-grid.vis-minor {
@@ -56,6 +125,38 @@ body {
 
 .vis-time-axis .vis-grid.vis-major {
   border-color: #e5e7eb;
+}
+
+.vis-current-time {
+  background-color: #0284c7;
+  width: 2px;
+}
+
+.vis-tooltip {
+  font-family: inherit !important;
+  font-size: 0.8125rem !important;
+  border-radius: 0.375rem !important;
+  border: 1px solid #e5e7eb !important;
+  background: #fff !important;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
+  padding: 6px 8px !important;
+}
+
+/* Couleurs du CDC : vert (actif), orange / rouge (préavis), gris (expiré), bleu (projet) */
+.vis-item.tl-green.vis-range { background-color: #10b981; border-color: #059669; }
+.vis-item.tl-orange.vis-range { background-color: #f59e0b; border-color: #d97706; }
+.vis-item.tl-red.vis-range { background-color: #ef4444; border-color: #dc2626; }
+.vis-item.tl-gray.vis-range { background-color: #9ca3af; border-color: #6b7280; }
+.vis-item.tl-blue.vis-range { background-color: #3b82f6; border-color: #2563eb; }
+
+.tl-green .vis-dot, .vis-dot.tl-green { border-color: #10b981; background-color: #10b981; }
+.tl-orange .vis-dot, .vis-dot.tl-orange { border-color: #f59e0b; background-color: #f59e0b; }
+.tl-red .vis-dot, .vis-dot.tl-red { border-color: #ef4444; background-color: #ef4444; }
+.tl-gray .vis-dot, .vis-dot.tl-gray { border-color: #6b7280; background-color: #6b7280; }
+.tl-blue .vis-dot, .vis-dot.tl-blue { border-color: #3b82f6; background-color: #3b82f6; }
+
+.vis-item.vis-point.tl-gray {
+  color: #6b7280;
 }
 
 /* Scrollbar personnalisée */
@@ -75,4 +176,38 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
+}
+
+/* ---------- Impression / export PDF ---------- */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .card {
+    box-shadow: none;
+    break-inside: avoid;
+  }
+
+  .print-full {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+}
+
+.print-only {
+  display: none;
 }

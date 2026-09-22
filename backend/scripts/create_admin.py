@@ -1,54 +1,61 @@
 """
-Script pour créer un utilisateur administrateur initial.
-À exécuter une seule fois au démarrage de l'application.
+Crée (ou réinitialise) un compte administrateur local.
+
+Usage (dans le conteneur backend) :
+    docker compose exec backend python scripts/create_admin.py <identifiant> <email>
+Le mot de passe est demandé de façon masquée (jamais passé en argument ni affiché).
 """
-import sys
+import argparse
+import getpass
 import os
+import sys
 
 # Ajouter le répertoire parent au path pour les imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.database import SessionLocal
-from app.models.user import User
+from app.database import SessionLocal, init_db  # noqa: E402
+from app.models.user import User  # noqa: E402
+from app.security import password_policy_error  # noqa: E402
+from app.services.user_service import find_by_login  # noqa: E402
 
 
-def create_admin_user():
-    """Crée un utilisateur administrateur par défaut."""
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Créer ou réinitialiser un administrateur local")
+    parser.add_argument("username")
+    parser.add_argument("email")
+    parser.add_argument("--full-name", default="Administrateur")
+    args = parser.parse_args()
+
+    password = getpass.getpass("Mot de passe (12 caractères minimum) : ")
+    if password != getpass.getpass("Confirmation : "):
+        print("❌ Les mots de passe ne correspondent pas.")
+        return 1
+    error = password_policy_error(password)
+    if error:
+        print(f"❌ {error}")
+        return 1
+
+    init_db()
     db = SessionLocal()
-    
     try:
-        # Vérifier si un admin existe déjà
-        existing_admin = db.query(User).filter(User.is_admin == True).first()
-        
-        if existing_admin:
-            print(f"✅ Un administrateur existe déjà: {existing_admin.username}")
-            return
-        
-        # Créer l'utilisateur admin
-        admin = User(
-            username="admin",
-            email="admin@cockpit-it.local",
-            hashed_password=User.hash_password("admin123"),  # À changer après la première connexion !
-            full_name="Administrateur",
-            is_admin=True,
-            is_active=True
-        )
-        
-        db.add(admin)
+        user = find_by_login(db, args.username) or find_by_login(db, args.email)
+        if user is None:
+            user = User(username=args.username, email=args.email.lower(), full_name=args.full_name, auth_provider="local")
+            db.add(user)
+            action = "créé"
+        else:
+            action = "mis à jour"
+        user.hashed_password = User.hash_password(password)
+        user.is_admin = True
+        user.is_active = True
+        user.must_change_password = False
+        user.revoke_sessions()
         db.commit()
-        
-        print("✅ Utilisateur administrateur créé avec succès !")
-        print("   Username: admin")
-        print("   Password: admin123")
-        print("   ⚠️  IMPORTANT: Changez ce mot de passe après la première connexion !")
-        
-    except Exception as e:
-        print(f"❌ Erreur lors de la création de l'administrateur: {e}")
-        db.rollback()
-    
+        print(f"✅ Administrateur « {user.username} » {action}.")
+        return 0
     finally:
         db.close()
 
 
 if __name__ == "__main__":
-    create_admin_user()
+    sys.exit(main())

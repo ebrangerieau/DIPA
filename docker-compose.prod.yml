@@ -1,0 +1,59 @@
+# Environnement de PRODUCTION
+#   cp .env.example .env              # mot de passe PostgreSQL, port d'écoute
+#   cp backend/.env.example backend/.env
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# L'application écoute par défaut sur 127.0.0.1:8080, derrière le reverse proxy
+# HTTPS du serveur (celui qui publie déjà Zammad par exemple). HTTPS est obligatoire
+# (CDC §8) : les cookies de session sont marqués « Secure » hors mode DEBUG.
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cockpit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Definir POSTGRES_PASSWORD dans le fichier .env a la racine}
+      POSTGRES_DB: cockpit_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U cockpit -d cockpit_db" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://cockpit:${POSTGRES_PASSWORD}@postgres:5432/cockpit_db
+      DEBUG: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+
+  frontend:
+    build:
+      context: ./frontend
+      target: production
+    restart: unless-stopped
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:8080"
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+
+networks:
+  internal:
+    driver: bridge

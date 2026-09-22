@@ -1,15 +1,48 @@
 # Gitignore principal
+
+# Secrets et configuration locale (ne JAMAIS commiter)
 .env
-.env.local
-.DS_Store
-Thumbs.db
-*.log
+.env.*
+!.env.example
+credentials.json
+token.json
+*.pem
+*.key
+*.pfx
+
+# Sauvegardes et exports (contiennent des données métier)
+*.sql
+!backend/migrations/*.sql
+*.sql.gz
+*.dump
+backups/
+cockpit-it_sauvegarde_*.json
+contrats_*.csv
+
+# Fichiers intermédiaires
+.tmp/
+
+# Environnements et caches
+.venv/
+venv/
+node_modules/
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Documentation interne
 AGENT.md
 CDC.md
 
-# IDE
+# Paramètres locaux Claude Code (propres à chaque poste)
+.claude/settings.local.json
+.claude/launch.json
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*.log
 .vscode/
 .idea/
 *.swp

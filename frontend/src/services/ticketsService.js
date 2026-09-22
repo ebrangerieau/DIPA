@@ -1,46 +1,28 @@
 /**
  * Service API pour les tickets Zammad.
  */
-import axios from 'axios';
-import { API_ENDPOINTS } from '../config/api';
-
-const api = axios.create({
-    headers: {
-        'Content-Type': 'application/json',
-    },
-});
+import api from '../lib/api';
 
 export const ticketsService = {
-    /**
-     * Récupère les tickets avec tag #Projet.
-     */
     async getProjectTickets() {
-        const response = await api.get(API_ENDPOINTS.TICKETS_PROJECTS);
-        return response.data;
+        const { data } = await api.get('/tickets/projects');
+        return data;
     },
 
-    /**
-     * Récupère les statistiques des tickets clos.
-     */
+    /** Tickets clos par jour : { start_date, end_date, exclude_projects }. */
     async getStats(params = {}) {
-        const response = await api.get(API_ENDPOINTS.TICKETS_STATS, { params });
-        return response.data;
+        const { data } = await api.get('/tickets/stats', { params });
+        return data;
     },
 
-    /**
-     * Récupère les données de timeline des tickets.
-     */
     async getTimelineData() {
-        const response = await api.get(API_ENDPOINTS.TICKETS_TIMELINE);
-        return response.data;
+        const { data } = await api.get('/tickets/timeline/data');
+        return data;
     },
 
-    /**
-     * Récupère un ticket par ID.
-     */
     async getById(id) {
-        const response = await api.get(`${API_ENDPOINTS.TICKETS_PROJECTS.replace('/projects', '')}/${id}`);
-        return response.data;
+        const { data } = await api.get(`/tickets/${id}`);
+        return data;
     },
 };
 
