@@ -4,15 +4,14 @@ Gestion centralisée des variables d'environnement (fichier .env ou environnemen
 """
 import json
 import os
-from typing import Annotated, Optional
-
 import re
+from typing import Annotated, Optional
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 APP_VERSION = "1.1.0"  # Version du code (volontairement non surchargeable par le .env)
-DEFAULT_SECRET_KEY = "your-secret-key-change-in-production"
+DEFAULT_SECRET_KEY = "your-secret-key-change-in-production"  # gitleaks:allow (valeur factice refusée hors DEBUG)
 
 # Marqueurs signalant une valeur d'exemple laissée telle quelle dans le .env
 _PLACEHOLDER_MARKERS = ("votre", "your", "change", "example", "exemple", "xxx")
