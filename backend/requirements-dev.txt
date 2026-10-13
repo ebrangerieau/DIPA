@@ -3,3 +3,6 @@
 # Tests
 pytest==9.1.1
 pytest-cov==7.1.0
+
+# Audit de sécurité des dépendances (CI)
+pip-audit==2.10.1

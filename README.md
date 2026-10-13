@@ -196,6 +196,10 @@ Le mot de passe est demandé de façon masquée ; il sert aussi à réinitialise
 - **Secrets** : `.env` n'est jamais commité ni copié dans les images Docker (`.dockerignore`) ;
   la CI GitHub exécute **gitleaks** à chaque push pour détecter une fuite. En cas de doute sur
   un secret, le révoquer (token Zammad, secret Entra ID) puis le remplacer.
+- **Dépendances** : la CI vérifie les failles connues (`pip-audit`, `npm audit`) à chaque push et
+  chaque lundi, pour détecter les failles publiées entre deux évolutions. GitHub suspend les
+  exécutions planifiées après 60 jours sans activité sur le dépôt : les réactiver dans l'onglet
+  *Actions* si besoin.
 
 ## 🔧 Développement
 
@@ -206,6 +210,7 @@ python -m venv .venv && .venv\Scripts\activate    # Linux/macOS : source .venv/b
 pip install -r requirements-dev.txt
 uvicorn app.main:app --reload --port 8001
 pytest                                            # 78 tests (Zammad simulé, SQLite en mémoire)
+pip-audit -r requirements.txt                     # failles connues des dépendances
 
 # Frontend
 cd frontend

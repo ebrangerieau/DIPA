@@ -1,5 +1,17 @@
 # Notes de passation
 
+## Maintenance du 2026-10-10
+
+- **Sécurité des dépendances** : PyJWT 2.14.0 → 2.15.1 (deux failles corrigées par la 2.15 ;
+  impact réel faible, les jetons HS256 étant toujours vérifiés par signature) et `moment` 2.30.1 → 2.31.0
+  (dépendance de vis-timeline, faille modérée). Aucune faille connue dans les dépendances de production.
+- **CI** : audit des dépendances Python (`pip-audit`), `npm audit` bloquant dès le niveau modéré et
+  exécution chaque lundi en plus des push.
+- Restent signalées par `npm audit` des failles des **outils de build** (Tailwind 3 : braces,
+  micromatch, postcss-selector-parser), absentes du code livré aux navigateurs ; leur correction
+  passe par la migration vers Tailwind 4.
+- `CLAUDE.md` décrit désormais le projet (commandes, architecture, conventions).
+
 ## Version 1.1.0 (2026-09-22) – sécurisation et pilotage
 
 ### Actions à réaliser par l'administrateur
